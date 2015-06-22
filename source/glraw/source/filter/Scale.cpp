@@ -41,25 +41,31 @@ namespace
 
 		} )";
 
+	const float DefaultScale = 1.0f;
 	const int DefaultWidth = 500;
 	const int DefaultHeight = 500;
-	bool DefaultFastMode = true;
+	const int DefaultMode = 1;
+	bool DefaultBilinear = true;
 }
 
 namespace glraw
 {
-
-Scale::Scale( int width = DefaultWidth, int height = DefaultHeight, bool fastMode = DefaultFastMode )
-	: m_width(width)
+	Scale::Scale(ScaleMode mode = (ScaleMode)DefaultMode, int width = DefaultWidth, int height = DefaultHeight, float scale = DefaultScale, bool bilinear = DefaultBilinear)
+	: m_mode(mode)
+	, m_width(width)
 	, m_height(height)
-	, m_fastMode(fastMode)
+	, m_scale(scale)
+	, m_bilinear(bilinear)
 {
 }
 
-Scale::Scale(const QVariantMap& cfg)
-	: Scale(WidthFromVariant(cfg), HeightFromVariant(cfg), FastModeFromVariant(cfg))
+	Scale::Scale(const QVariantMap& cfg)
+	: m_mode(ModeFromVariant(cfg))
+	, m_width(WidthFromVariant(cfg))
+	, m_height(HeightFromVariant(cfg))
+	, m_scale(ScaleFromVariant(cfg))
+	, m_bilinear(BilinearFromVariant(cfg))
 {
-
 }
 
 bool Scale::process(std::unique_ptr<Canvas> & imageData, AssetInformation & info)
@@ -76,10 +82,34 @@ bool Scale::process(std::unique_ptr<Canvas> & imageData, AssetInformation & info
 
 	m_gl->glBindTexture(GL_TEXTURE_2D, texture);
 
+
 	GLuint processedTexture;
+	GLint w, h;
+	int width, height;
+
+	m_gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+	m_gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+	switch (m_mode)
+	{
+	case 0:
+		width = m_width;
+		height = m_height;
+	case 2:
+		width = m_width;
+		height = m_width / width;
+		break;
+	case 3:
+		width = m_height/height;
+		height = height;
+		break;
+	default:
+		width = (int)(m_width*m_scale);
+		height = (int)(m_height*m_scale);
+		break;
+	}
 	m_gl->glGenTextures(1, &processedTexture);
 	m_gl->glBindTexture(GL_TEXTURE_2D, processedTexture);
-	m_gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, m_width, m_height, 0, GL_RGBA, GL_FLOAT, nullptr);
+	m_gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
 
 	GLuint fbo;
 	m_gl->glGenFramebuffers(1, &fbo);
@@ -100,7 +130,7 @@ bool Scale::process(std::unique_ptr<Canvas> & imageData, AssetInformation & info
 	m_gl->glEnableVertexAttribArray(0);
 
 
-	m_gl->glViewport(0, 0, m_width, m_height);
+	m_gl->glViewport(0, 0, width, height);
 	m_gl->glDisable(GL_DEPTH_TEST);
 
 	m_gl->glActiveTexture(GL_TEXTURE0);
@@ -128,11 +158,18 @@ bool Scale::process(std::unique_ptr<Canvas> & imageData, AssetInformation & info
 
 void Scale::setUniforms(QOpenGLShaderProgram& program)
 {
-	program.setUniformValue("height", m_height);
-	program.setUniformValue("width", m_width);
-	program.setUniformValue("mode", m_fastMode);
+	program.setUniformValue("mode", m_bilinear);
 }
 
+Scale::ScaleMode Scale::ModeFromVariant(const QVariantMap& cfg)
+{
+	return (ScaleMode)cfg.value("mode", { DefaultMode }).toInt();
+}
+
+float Scale::ScaleFromVariant(const QVariantMap& cfg)
+{
+	return cfg.value("scale", { DefaultScale }).toFloat();
+}
 int Scale::WidthFromVariant(const QVariantMap& cfg)
 {
 	return cfg.value( "width", { DefaultWidth } ).toInt();
@@ -141,9 +178,9 @@ int Scale::HeightFromVariant(const QVariantMap& cfg)
 {
 	return cfg.value("height", { DefaultHeight }).toInt();
 }
-bool Scale::FastModeFromVariant(const QVariantMap& cfg)
+bool Scale::BilinearFromVariant(const QVariantMap& cfg)
 {
-	return cfg.value("fastMode", { DefaultFastMode }).toBool();
+	return cfg.value("bilinear", { DefaultBilinear }).toBool();
 }
 
 }
